@@ -63,11 +63,50 @@ detect_engine() {
   return 1
 }
 
-if [[ -z "${ARK_API_KEY:-}" || -z "${ARK_MODEL:-}" ]]; then
-  log "ARK_API_KEY and ARK_MODEL are required."
-  log "Example: ARK_API_KEY=key ARK_MODEL=ep-id ./scripts/start-local-poc.sh"
-  exit 2
+model_provider="${MODEL_PROVIDER:-}"
+if [[ -z "$model_provider" ]]; then
+  if [[ -n "${GLM_API_KEY:-}" || -n "${ZAI_API_KEY:-}" ]]; then
+    model_provider="glm"
+  elif [[ -n "${ARK_API_KEY:-}" || -n "${ARK_MODEL:-}" ]]; then
+    model_provider="ark"
+  else
+    model_provider="glm"
+  fi
 fi
+
+case "$model_provider" in
+  glm)
+    glm_api_key="${GLM_API_KEY:-${ZAI_API_KEY:-}}"
+    if [[ -z "$glm_api_key" || "$glm_api_key" == replace-* ]]; then
+      glm_keychain_service="${GLM_KEYCHAIN_SERVICE:-Codex Zhipu GLM API Key}"
+      if [[ "$(uname -s)" == "Darwin" ]] && command -v security >/dev/null 2>&1; then
+        if glm_api_key="$(security find-generic-password \
+          -a "$(id -un)" -s "$glm_keychain_service" -w 2>/dev/null)"; then
+          export GLM_API_KEY="$glm_api_key"
+          log "Loaded the GLM API key from macOS Keychain."
+        fi
+      fi
+    fi
+    if [[ -z "$glm_api_key" || "$glm_api_key" == replace-* ]]; then
+      log "GLM_API_KEY (or ZAI_API_KEY) is required for MODEL_PROVIDER=glm."
+      exit 2
+    fi
+    export GLM_MODEL="${GLM_MODEL:-glm-5.3}"
+    log "Using Zhipu GLM model $GLM_MODEL."
+    ;;
+  ark)
+    if [[ -z "${ARK_API_KEY:-}" || -z "${ARK_MODEL:-}" ]]; then
+      log "ARK_API_KEY and ARK_MODEL are required for MODEL_PROVIDER=ark."
+      exit 2
+    fi
+    log "Using Volcengine Ark model $ARK_MODEL."
+    ;;
+  *)
+    log "MODEL_PROVIDER must be glm or ark; found $model_provider."
+    exit 2
+    ;;
+esac
+export MODEL_PROVIDER="$model_provider"
 
 command -v node >/dev/null 2>&1 || {
   log "Node.js 22+ is required to run the local control plane."

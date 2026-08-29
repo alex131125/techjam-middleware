@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "./config.js";
-import { isArkConfigured } from "./config.js";
+import { isModelConfigured, modelProviderSetupHint } from "./config.js";
 import { HttpError, RunCancelledError } from "./errors.js";
 import { JsonStore } from "./store.js";
 import type {
@@ -154,10 +154,12 @@ export class AgentService {
     agentId: string,
     prompt: string,
   ): Promise<{ run: AgentRun; message: Message }> {
-    if (!isArkConfigured(this.config)) {
+    if (!isModelConfigured(this.config)) {
       throw new HttpError(
         503,
-        "Ark is not configured. Set ARK_API_KEY and ARK_MODEL, then restart.",
+        this.config.modelProvider.name +
+          " is not configured. " +
+          modelProviderSetupHint(this.config),
       );
     }
     const timestamp = now();
@@ -214,10 +216,18 @@ export class AgentService {
   }
 
   async systemInfo(): Promise<Record<string, unknown>> {
+    const configured = isModelConfigured(this.config);
+    const provider = this.config.modelProvider;
     return {
-      arkConfigured: isArkConfigured(this.config),
-      arkBaseUrl: this.config.arkBaseUrl,
-      arkModel: this.config.arkModel || null,
+      modelConfigured: configured,
+      modelProvider: provider.id,
+      modelProviderName: provider.name,
+      modelBaseUrl: provider.baseUrl,
+      model: provider.model || null,
+      // Compatibility aliases for the Starter Kit Web UI.
+      arkConfigured: configured,
+      arkBaseUrl: provider.baseUrl,
+      arkModel: provider.model || null,
       codexAvailable: await this.runner.isAvailable(),
       codexSandboxMode: this.config.codexSandboxMode,
       runtimeProvider: this.config.runtimeProvider,

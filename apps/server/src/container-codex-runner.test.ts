@@ -9,8 +9,8 @@ describe("Container Codex runner", () => {
   it("builds an isolated Docker/Podman-compatible invocation", () => {
     const config = loadConfig({
       NODE_ENV: "test",
-      ARK_API_KEY: "secret-that-must-not-appear-in-argv",
-      ARK_MODEL: "ep-test",
+      MODEL_PROVIDER: "glm",
+      GLM_API_KEY: "secret-that-must-not-appear-in-argv",
       CODEX_HOME: "/tmp/codex-home",
       RUNTIME_PROVIDER: "container",
       CONTAINER_ENGINE: "podman",
@@ -39,6 +39,8 @@ describe("Container Codex runner", () => {
     expect(args).toContain("/workspace");
     expect(args).toContain("io.codejam.instance-id=test-instance");
     expect(args).toContain("keep-id");
+    expect(args).toContain("MODEL_API_KEY");
+    expect(args).not.toContain("ARK_API_KEY");
     expect(args).not.toContain("secret-that-must-not-appear-in-argv");
   });
 
