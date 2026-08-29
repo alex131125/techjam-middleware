@@ -17,6 +17,10 @@ WORKDIR /app
 
 ARG DEBIAN_MIRROR=""
 ARG DEBIAN_SECURITY_MIRROR=""
+# Client only. Needed solely by RUNTIME_PROVIDER=container, where the control plane asks
+# the host engine to launch a sibling Runtime container over the mounted socket.
+ARG DOCKER_CLI_VERSION=27.5.1
+ARG INSTALL_DOCKER_CLI=true
 
 RUN if [ -n "$DEBIAN_SECURITY_MIRROR" ]; then \
       find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) \
@@ -28,8 +32,22 @@ RUN if [ -n "$DEBIAN_SECURITY_MIRROR" ]; then \
     fi \
     && apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git ripgrep \
+    && apt-get install -y --no-install-recommends curl \
     && npm install --global @openai/codex@0.111.0 \
     && codex --version \
+    && if [ "$INSTALL_DOCKER_CLI" = "true" ]; then \
+         arch="$(uname -m)"; \
+         case "$arch" in x86_64) dl=x86_64 ;; aarch64|arm64) dl=aarch64 ;; *) dl="" ;; esac; \
+         if [ -n "$dl" ]; then \
+           curl -fsSL "https://download.docker.com/linux/static/stable/${dl}/docker-${DOCKER_CLI_VERSION}.tgz" \
+             -o /tmp/docker.tgz \
+           && tar -xzf /tmp/docker.tgz -C /tmp docker/docker \
+           && install -m 0755 /tmp/docker/docker /usr/local/bin/docker \
+           && rm -rf /tmp/docker /tmp/docker.tgz \
+           && docker --version; \
+         fi; \
+       fi \
+    && apt-get purge -y curl && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/node_modules ./node_modules

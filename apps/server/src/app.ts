@@ -7,13 +7,21 @@ import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { HttpError } from "./errors.js";
 import type { AgentService } from "./agent-service.js";
+import { COMMAND_CLASSES } from "./middleware/capability.js";
 
 const agentIdParams = z.object({ id: z.string().uuid() });
 const runIdParams = z.object({ id: z.string().uuid() });
+const budgetPolicyBody = z.object({
+  commandClasses: z.array(z.enum(COMMAND_CLASSES)).optional(),
+  egressAllowlist: z.array(z.string().trim().min(1).max(253)).optional(),
+  maxSteps: z.number().int().min(1).max(1000).optional(),
+  allowOutsideWorkspace: z.boolean().optional(),
+});
 const createAgentBody = z.object({
   name: z.string().trim().min(1).max(80),
   description: z.string().max(500).optional(),
   instructions: z.string().max(10_000).optional(),
+  budgetPolicy: budgetPolicyBody.optional(),
 });
 const updateAgentBody = createAgentBody.partial().refine(
   (value) => Object.keys(value).length > 0,
@@ -115,6 +123,44 @@ export async function createApp(
     const { id } = agentIdParams.parse(request.params);
     return { runs: service.getRuns(id) };
   });
+
+  // --- Middleware surface -------------------------------------------------
+
+  /** The frozen budget that will apply to this Agent's next turn. */
+  app.get("/api/agents/:id/budget", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    const agent = service.getAgent(id);
+    return {
+      ceiling: service.ceiling(),
+      effective: service.effectiveBudget(agent),
+      policy: agent.budgetPolicy,
+    };
+  });
+
+  /**
+   * Narrow the Agent's budget. A proposal that would widen is rejected with 409 rather
+   * than clamped, so a caller cannot mistake a refusal for success.
+   */
+  app.post("/api/agents/:id/budget", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    const body = budgetPolicyBody.parse(request.body);
+    const agent = await service.narrowAgentBudget(id, body);
+    return { agent, effective: service.effectiveBudget(agent) };
+  });
+
+  /** Correlated timeline for one Run: budget, commands, model calls, violations. */
+  app.get("/api/runs/:id/trace", async (request) => {
+    const { id } = runIdParams.parse(request.params);
+    return { run: service.getRun(id), events: service.getTrace(id) };
+  });
+
+  app.get("/api/agents/:id/violations", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    service.getAgent(id);
+    return { violations: service.getViolations(id) };
+  });
+
+  app.get("/api/violations", async () => ({ violations: service.getViolations() }));
 
   app.post("/api/agents/:id/messages", async (request, reply) => {
     const { id } = agentIdParams.parse(request.params);
