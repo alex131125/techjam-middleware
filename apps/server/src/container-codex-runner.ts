@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import type { AppConfig } from "./config.js";
+import { MODEL_API_KEY_ENV, type AppConfig } from "./config.js";
 import { buildCodexArgs, parseCodexEventLine } from "./codex-runner.js";
 import { RunCancelledError } from "./errors.js";
 import type {
@@ -69,7 +69,7 @@ export function buildContainerRunArgs(
     "--user",
     config.containerUser,
     "--env",
-    "ARK_API_KEY",
+    MODEL_API_KEY_ENV,
     "--env",
     "CODEX_HOME=/codex-home",
     "--env",
@@ -237,7 +237,7 @@ export class ContainerCodexRunner implements AgentRunner {
 
   private childEnvironment(): NodeJS.ProcessEnv {
     const environment: NodeJS.ProcessEnv = {
-      ARK_API_KEY: this.config.arkApiKey,
+      [MODEL_API_KEY_ENV]: this.config.modelProvider.apiKey,
       NO_COLOR: "1",
     };
     for (const name of [
