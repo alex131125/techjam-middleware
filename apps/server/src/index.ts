@@ -1,13 +1,12 @@
 import path from "node:path";
 import { AgentService } from "./agent-service.js";
 import { createApp } from "./app.js";
-import { loadConfig, writeCodexConfig } from "./config.js";
+import { loadConfig } from "./config.js";
 import { createRunner } from "./runner-factory.js";
 import { JsonStore } from "./store.js";
 import { WorkspaceManager } from "./workspace.js";
 
 const config = loadConfig();
-await writeCodexConfig(config);
 
 const store = new JsonStore(path.join(config.dataDirectory, "launchpad.json"));
 const workspaces = new WorkspaceManager(config.workspaceRoot);
@@ -20,6 +19,7 @@ const app = await createApp(config, service);
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "Shutting down");
   await app.close();
+  await service.shutdown();
   process.exit(0);
 };
 

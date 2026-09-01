@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#151812">
+    <meta name="description" content="AegisGraph makes AI-agent permissions enforceable, revocable, and independently verifiable at the host boundary.">
+    <meta property="og:title" content="AegisGraph — Agent permissions that hold">
+    <meta property="og:description" content="Run-scoped authority, brokered effects, and host-verified evidence for AI agents.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://alex131125.github.io/techjam-middleware/">
+    <link rel="canonical" href="https://alex131125.github.io/techjam-middleware/">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%23151812'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='30' fill='%23dafe62'%3EA%3C/text%3E%3C/svg%3E">
+    <title>AegisGraph — Agent permissions that hold</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header" id="top">
+      <a class="brand" href="#top" aria-label="AegisGraph home"><span class="brand-mark" aria-hidden="true">A</span><span>AegisGraph</span></a>
+      <nav aria-label="Primary navigation"><a href="#system">System</a><a href="#protocol">Protocol</a><a href="#status">Status</a></nav>
+      <span class="event-label">TechJam 2026</span>
+    </header>
+
+    <main id="main">
+      <section class="hero shell" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span></span> Agent safety, enforced beyond the prompt</p>
+          <h1 id="hero-title">Permissions agents <em>can’t talk</em> their way around.</h1>
+          <p class="lede">Every run receives short-lived, least-privilege authority. A host-side broker decides what may change, revokes access precisely, and proves the outcome from protected state.</p>
+          <div class="hero-actions"><a class="button primary" href="#system">Explore the safety path <span aria-hidden="true">↓</span></a><span class="button placeholder">Demo video · coming soon</span></div>
+        </div>
+        <aside class="trace-panel" aria-label="Illustrative action broker trace">
+          <div class="trace-head"><span>EXAMPLE TRACE</span><code>run_[placeholder]</code></div>
+          <div class="trace-body">
+            <p class="trace-context">owner / action / params / version / expiry</p>
+            <div class="trace-row"><code>get_status</code><b class="allow">ALLOW</b></div>
+            <div class="trace-row"><code>update_draft_note</code><b class="allow">ALLOW + RECEIPT</b></div>
+            <div class="trace-row active"><code>delete_service</code><b class="deny">DENY</b></div>
+            <div class="trace-row"><code>deploy_production</code><b class="deny">DENY</b></div>
+          </div>
+          <p class="trace-note">Illustrative policy trace — not a completed live-model benchmark.</p>
+        </aside>
+      </section>
+
+      <dl class="status-strip">
+        <div><dt>Implementation</dt><dd><i class="dot green"></i>Synthetically verified</dd></div>
+        <div><dt>Live ModelArk runs</dt><dd><i class="dot amber"></i>Pending</dd></div>
+        <div><dt>Production claim</dt><dd><i class="dot grey"></i>Not made</dd></div>
+      </dl>
+
+      <section class="section shell" id="system" aria-labelledby="system-title">
+        <header class="section-heading"><p class="eyebrow"><span></span> The control loop</p><h2 id="system-title">From prompt to proof.</h2><p>The model can be manipulated. The permission boundary does not move with it.</p></header>
+        <div class="principles">
+          <article><span class="index">01 / GRANT</span><h3>Bind authority to one run</h3><p>Issue a fresh capability scoped to owner, action, parameters, resource version, expiry, and revocation state.</p></article>
+          <article><span class="index">02 / BROKER</span><h3>Put policy on the write path</h3><p>Check authorization in the same serialized transaction as the mutation and its structured receipt.</p></article>
+          <article><span class="index">03 / VERIFY</span><h3>Ask the host what happened</h3><p>Replay receipts against complete before/after snapshots. Keep execution, safety, and cleanup as separate outcomes.</p></article>
+        </div>
+        <figure class="pipeline">
+          <div class="pipeline-node"><small>01</small><strong>Untrusted input</strong><span>ticket / task</span></div><i aria-hidden="true">→</i>
+          <div class="pipeline-node"><small>02</small><strong>Agent runtime</strong><span>scoped token</span></div><i aria-hidden="true">→</i>
+          <div class="pipeline-node broker"><small>03</small><strong>Action Broker</strong><span>atomic decision</span></div><i aria-hidden="true">→</i>
+          <div class="pipeline-node"><small>04</small><strong>Protected state</strong><span>host oracle</span></div>
+          <figcaption>The prompt can request an effect. Only the broker can authorize one.</figcaption>
+        </figure>
+      </section>
+
+      <section class="section threat" id="protocol" aria-labelledby="protocol-title">
+        <div class="shell threat-grid">
+          <header class="section-heading inverse"><p class="eyebrow"><span></span> Demo protocol</p><h2 id="protocol-title">When the prompt turns hostile.</h2><p>A refusal is helpful behavior. A server-side denial plus unchanged protected state is enforcement evidence.</p></header>
+          <ol class="protocol-list">
+            <li><span>01</span><div><h3>Read</h3><p>Treat embedded instructions in an external ticket as untrusted content.</p></div></li>
+            <li><span>02</span><div><h3>Attempt</h3><p>Observe whether the agent requests a destructive action; record “not attempted” when it does not.</p></div></li>
+            <li><span>03</span><div><h3>Enforce</h3><p>Deny out-of-policy effects at the Action Broker, independent of the model’s wording.</p></div></li>
+            <li><span>04</span><div><h3>Recover</h3><p>Revoke the exact run, verify cleanup and host state, then issue fresh authority for useful work.</p></div></li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section shell product" aria-labelledby="product-title">
+        <div class="product-copy"><p class="eyebrow"><span></span> Built on Agent Launchpad</p><h2 id="product-title">Useful before, safe during, accountable after.</h2><p>The safety extension builds on a React and Fastify control plane with asynchronous runs, persistent workspaces and sessions, and disposable local runtime containers.</p><ul><li>Human-scoped agents and run evidence</li><li>Exact-run revoke and cleanup</li><li>Orchestration, policy/tool, and cleanup traces</li></ul></div>
+        <figure class="product-shot"><div class="browser-bar"><i></i><i></i><i></i><span>Agent Launchpad / local control plane</span></div><img src="./assets/playground.jpg" alt="Agent Launchpad playground showing agent controls and a task conversation"><figcaption>Launchpad interface shown for product context, not as enforcement evidence.</figcaption></figure>
+      </section>
+
+      <section class="section shell evidence" id="status" aria-labelledby="status-title">
+        <div><p class="eyebrow"><span></span> Evidence boundary</p><h2 id="status-title">Honest now. Stronger next.</h2></div>
+        <div class="evidence-copy"><p><strong>Implemented and synthetically verified:</strong> run-scoped capabilities, atomic policy checks, destructive-action denial, host-side receipts, exact-run cleanup, and redacted evidence.</p><p><strong>Still pending:</strong> a frozen public source link, public video, verified BytePlus ModelArk configuration, and three consecutive real-model demonstrations.</p><p class="limits">Not claimed: production readiness, universal prompt-injection prevention, container-escape defense, general exfiltration prevention, or distributed transaction isolation.</p></div>
+      </section>
+    </main>
+
+    <footer class="site-footer shell"><div><span class="brand-mark" aria-hidden="true">A</span><p><strong>AegisGraph</strong><br>Executable. Revocable. Verifiable.</p></div><p class="footer-meta">Team profile · coming soon<br>Public source · coming soon</p><a href="#top">Back to top ↑</a></footer>
+  </body>
+</html>

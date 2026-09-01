@@ -7,6 +7,8 @@ const emptyDatabase = (): Database => ({
   agents: [],
   messages: [],
   runs: [],
+  traces: [],
+  violations: [],
 });
 
 export class JsonStore {
