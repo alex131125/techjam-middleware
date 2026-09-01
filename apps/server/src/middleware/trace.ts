@@ -61,20 +61,27 @@ export class TraceRecorder {
   }
 
   private sanitizeDetail(detail: Record<string, unknown>): Record<string, unknown> {
+    return this.sanitizeValue(detail) as Record<string, unknown>;
+  }
+
+  private sanitizeValue(value: unknown): unknown {
+    if (typeof value === "string") {
+      return redact(value, this.secrets).text.slice(0, MAX_DETAIL_CHARS);
+    }
+    if (typeof value === "number" || typeof value === "boolean" || value === null) {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.sanitizeValue(item));
+    }
+    if (typeof value !== "object" || value === undefined) {
+      return undefined;
+    }
+
     const output: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(detail)) {
-      if (typeof value === "string") {
-        output[key] = redact(value, this.secrets).text.slice(0, MAX_DETAIL_CHARS);
-      } else if (
-        typeof value === "number" ||
-        typeof value === "boolean" ||
-        value === null ||
-        Array.isArray(value)
-      ) {
-        output[key] = value;
-      } else if (value !== undefined) {
-        output[key] = redact(JSON.stringify(value), this.secrets).text.slice(0, MAX_DETAIL_CHARS);
-      }
+    for (const [key, nested] of Object.entries(value)) {
+      const sanitized = this.sanitizeValue(nested);
+      if (sanitized !== undefined) output[key] = sanitized;
     }
     return output;
   }

@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -47,7 +47,6 @@ const temporaryDirectories: string[] = [];
 const openServices: AgentService[] = [];
 
 afterEach(async () => {
-  const { rm } = await import("node:fs/promises");
   await Promise.all(openServices.splice(0).map((service) => service.shutdown()));
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
@@ -157,5 +156,57 @@ describe("Agent lifecycle", () => {
 
     finish(emptyResult("done", "thread"));
     await expect.poll(() => service.getRun(run.id).status).toBe("completed");
+  });
+
+  it("does not let the generic update path widen or clear a narrowed budget", async () => {
+    const service = await makeService();
+    const agent = await service.createAgent({
+      name: "Locked",
+      budgetPolicy: { commandClasses: ["read"] },
+    });
+
+    await expect(
+      service.updateAgent(agent.id, {
+        budgetPolicy: { commandClasses: ["read", "write"] },
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    await expect(
+      service.updateAgent(agent.id, { budgetPolicy: null }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(service.effectiveBudget(service.getAgent(agent.id)).commandClasses).toEqual([
+      "read",
+    ]);
+  });
+
+  it("fails closed when a stored policy no longer fits the platform ceiling", async () => {
+    const service = await makeService();
+    const agent = await service.createAgent({ name: "Stale policy" });
+    agent.budgetPolicy = { commandClasses: ["network"] };
+
+    expect(service.effectiveBudget(agent)).toMatchObject({
+      commandClasses: [],
+      egressAllowlist: [],
+      maxSteps: 1,
+      allowOutsideWorkspace: false,
+    });
+  });
+
+  it("revokes the run token and releases the Agent when config setup fails", async () => {
+    const runner = new FakeRunner();
+    const service = await makeService(runner);
+    const agent = await service.createAgent({ name: "Broken config" });
+    const root = temporaryDirectories.at(-1)!;
+    const codexHome = path.join(root, "codex", "agents", agent.id);
+    await rm(codexHome, { recursive: true, force: true });
+    await writeFile(codexHome, "blocks directory creation", "utf8");
+
+    const { run } = await service.sendMessage(agent.id, "do not run");
+    await expect.poll(() => service.getRun(run.id).status).toBe("failed");
+    expect(service.getAgent(agent.id).status).toBe("error");
+    expect(runner.lastRequest).toBeNull();
+
+    const middleware = (await service.systemInfo()).middleware as Record<string, unknown>;
+    const broker = middleware.credentialBroker as Record<string, unknown>;
+    expect(broker.activeLeases).toBe(0);
   });
 });
