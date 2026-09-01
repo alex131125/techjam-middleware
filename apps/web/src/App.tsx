@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, setAuthToken } from "./api";
-import type { Agent, AgentRun, Message, SystemInfo } from "./types";
+import type {
+  Agent,
+  AgentRun,
+  CommandClass,
+  Message,
+  PolicyViolation,
+  SystemInfo,
+  TraceEvent,
+} from "./types";
 
 const starterPrompts = [
   "Create a small TypeScript CLI that prints a weather summary from sample JSON.",
@@ -49,11 +57,16 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState<boolean | null>(null);
   const [authInput, setAuthInput] = useState("");
+  const [showSecurity, setShowSecurity] = useState(false);
+  const [trace, setTrace] = useState<TraceEvent[]>([]);
+  const [violations, setViolations] = useState<PolicyViolation[]>([]);
   const messageEnd = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const pollingRunIds = useRef(new Set<string>());
   selectedIdRef.current = selectedId;
+
+  const budgetSummary = activeRun?.budget ?? null;
 
   const selected = useMemo(
     () => agents.find((agent) => agent.id === selectedId) ?? null,
@@ -77,6 +90,37 @@ export default function App() {
     }
   }, []);
 
+  /** Pull the middleware evidence for the Run currently on screen. */
+  const refreshSecurity = useCallback(
+    async (agentId: string, runId: string | null) => {
+      const [violationResult, traceResult] = await Promise.all([
+        api.violations(agentId),
+        runId ? api.trace(runId) : Promise.resolve({ events: [] as TraceEvent[] }),
+      ]);
+      if (!mountedRef.current || selectedIdRef.current !== agentId) return;
+      setViolations(violationResult.violations);
+      setTrace(traceResult.events);
+    },
+    [],
+  );
+
+  const lockDown = useCallback(
+    async (commandClasses: CommandClass[]) => {
+      if (!selectedIdRef.current) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await api.narrowBudget(selectedIdRef.current, { commandClasses });
+        await refreshAgents();
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refreshAgents],
+  );
+
   const bootstrap = useCallback(async () => {
     await Promise.all([refreshAgents(), api.system().then(setSystem)]);
   }, [refreshAgents]);
@@ -97,8 +141,18 @@ export default function App() {
   }, [bootstrap]);
 
   useEffect(() => {
+    if (!showSecurity || !selectedId) return;
+    void refreshSecurity(selectedId, activeRun?.id ?? null).catch((reason) =>
+      setError(reason instanceof Error ? reason.message : String(reason)),
+    );
+  }, [activeRun?.id, activeRun?.status, refreshSecurity, selectedId, showSecurity]);
+
+  useEffect(() => {
     setActiveRun(null);
     setShowSettings(false);
+    setShowSecurity(false);
+    setTrace([]);
+    setViolations([]);
     if (!selectedId) {
       setMessages([]);
       return;
@@ -411,6 +465,15 @@ export default function App() {
                   Settings
                 </button>
                 <button
+                  className={
+                    "button " +
+                    (violations.length > 0 ? "button-danger" : "button-ghost")
+                  }
+                  onClick={() => setShowSecurity((value) => !value)}
+                >
+                  Security{violations.length > 0 ? " (" + violations.length + ")" : ""}
+                </button>
+                <button
                   className="button button-ghost"
                   onClick={toggleAgent}
                   disabled={busy}
@@ -475,6 +538,150 @@ export default function App() {
                   </button>
                 </div>
               </form>
+            )}
+
+            {showSecurity && (
+              <section className="security-panel">
+                <div className="settings-title">
+                  <div>
+                    <span className="eyebrow">Middleware evidence</span>
+                    <h2>Capability budget and run trace</h2>
+                  </div>
+                </div>
+
+                <div className="security-grid">
+                  <div className="security-card">
+                    <span className="eyebrow">Frozen budget</span>
+                    {budgetSummary ? (
+                      <ul className="security-list">
+                        <li>
+                          <b>Command classes</b>
+                          <span>{budgetSummary.commandClasses.join(", ") || "none"}</span>
+                        </li>
+                        <li>
+                          <b>Egress allowlist</b>
+                          <span>{budgetSummary.egressAllowlist.join(", ") || "none"}</span>
+                        </li>
+                        <li>
+                          <b>Max steps</b>
+                          <span>{budgetSummary.maxSteps}</span>
+                        </li>
+                        <li>
+                          <b>Outside workspace</b>
+                          <span>{budgetSummary.allowOutsideWorkspace ? "allowed" : "denied"}</span>
+                        </li>
+                        <li>
+                          <b>Frozen at</b>
+                          <span>{formatTime(budgetSummary.frozenAt)}</span>
+                        </li>
+                      </ul>
+                    ) : (
+                      <p className="security-empty">
+                        Send a message to freeze a budget for a run.
+                      </p>
+                    )}
+                    <div className="security-actions">
+                      <button
+                        className="button button-ghost"
+                        onClick={() => void lockDown(["read"])}
+                        disabled={busy || selected.status === "busy"}
+                      >
+                        Narrow to read-only
+                      </button>
+                      <button
+                        className="button button-ghost"
+                        onClick={() => void lockDown(["read", "write", "build", "vcs"])}
+                        disabled={busy || selected.status === "busy"}
+                      >
+                        Narrow to no-process
+                      </button>
+                    </div>
+                    <p className="security-note">
+                      A budget can only ever be narrowed. Widening is refused by the
+                      control plane, so injected content cannot escalate privilege.
+                    </p>
+                  </div>
+
+                  <div className="security-card">
+                    <span className="eyebrow">
+                      Enforcement
+                      {system?.middleware?.policyEnforcement
+                        ? " · " + system.middleware.policyEnforcement
+                        : ""}
+                    </span>
+                    <ul className="security-list">
+                      <li>
+                        <b>Credential broker</b>
+                        <span>
+                          {system?.middleware?.credentialBroker?.enabled
+                            ? "Runtime holds a run-scoped token"
+                            : "off"}
+                        </span>
+                      </li>
+                      <li>
+                        <b>Egress allowlist</b>
+                        <span>
+                          {system?.middleware?.egressAllowlistEnforced
+                            ? "enforced at the container network"
+                            : "not enforced in this profile"}
+                        </span>
+                      </li>
+                      <li>
+                        <b>Per-Agent Codex home</b>
+                        <span>{system?.middleware?.perAgentCodexHome ? "yes" : "no"}</span>
+                      </li>
+                    </ul>
+                    {(system?.middleware?.degraded ?? []).length > 0 && (
+                      <div className="security-degraded">
+                        <b>Degraded controls</b>
+                        {(system?.middleware?.degraded ?? []).map((item) => (
+                          <p key={item.control}>
+                            <code>{item.control}</code> — {item.reason}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {violations.length > 0 && (
+                  <div className="security-card violations">
+                    <span className="eyebrow">Policy violations</span>
+                    {violations.slice(0, 10).map((violation) => (
+                      <div key={violation.id} className="violation-row">
+                        <div className="violation-head">
+                          <span className="violation-kind">{violation.kind}</span>
+                          {violation.terminal && (
+                            <span className="violation-terminal">turn aborted</span>
+                          )}
+                          <span className="violation-time">{formatTime(violation.at)}</span>
+                        </div>
+                        <p>{violation.detail}</p>
+                        <code>{violation.command}</code>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="security-card">
+                  <span className="eyebrow">
+                    Run trace{activeRun ? " · " + activeRun.status : ""}
+                  </span>
+                  {trace.length === 0 ? (
+                    <p className="security-empty">No trace events for this run yet.</p>
+                  ) : (
+                    <ol className="trace-list">
+                      {trace.map((event) => (
+                        <li key={event.id} className={"trace-" + event.type.split(".")[0]}>
+                          <span className="trace-type">{event.type}</span>
+                          <span className="trace-summary">{event.summary}</span>
+                          <span className="trace-time">{formatTime(event.at)}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              </section>
             )}
 
             <section className="playground">

@@ -36,12 +36,16 @@ describe("Model provider configuration", () => {
     });
     expect(isModelConfigured(config)).toBe(true);
 
-    await writeCodexConfig(config);
+    await writeCodexConfig(config, codexHome, "http://172.30.0.1:3001/ark");
     const toml = await readFile(path.join(codexHome, "config.toml"), "utf8");
     expect(toml).toContain('model_provider = "zhipu_glm"');
     expect(toml).toContain('env_key = "MODEL_API_KEY"');
     expect(toml).toContain('wire_api = "responses"');
     expect(toml).not.toContain("glm-secret");
+    // The broker indirection must survive the provider switch: Codex is pointed at the
+    // control plane, never straight at the provider.
+    expect(toml).toContain('base_url = "http://172.30.0.1:3001/ark"');
+    expect(toml).not.toContain("open.bigmodel.cn");
   });
 
   it("auto-selects Ark for legacy ARK environment variables", () => {

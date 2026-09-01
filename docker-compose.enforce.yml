@@ -1,0 +1,32 @@
+# Full-enforcement profile.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.enforce.yml up -d --build
+#
+# Switches the Runtime from `local-process` (Codex inside the application container) to
+# `container` (a disposable sibling container per turn). Only this profile can enforce the
+# L2 egress boundary, because only a separate container has its own network namespace.
+#
+# It mounts the container engine socket, which is a real privilege grant to the control
+# plane. That is acceptable for a single-user POC and is the same trust the `npm run poc`
+# path already assumes; it is not a multi-tenant design.
+services:
+  launchpad:
+    environment:
+      RUNTIME_PROVIDER: container
+      CONTAINER_ENGINE: docker
+      CONTAINER_RUNTIME_IMAGE: ${CONTAINER_RUNTIME_IMAGE:-volc-agent-runtime:local}
+      RUNTIME_NETWORK: ${RUNTIME_NETWORK:-launchpad-runtime}
+      # The engine resolves bind-mount sources on the host, so the control plane has to
+      # hand it host paths rather than its own /app/... view.
+      RUNTIME_HOST_WORKSPACE_ROOT: ${PWD}/workspaces
+      RUNTIME_HOST_CODEX_HOME: ${PWD}/codex-home
+      CONTAINER_USER: ${CONTAINER_USER:-1000:1000}
+      # Set to `off` to demo the deterministic layers without the advisory preamble.
+      SPOTLIGHT_PREAMBLE: ${SPOTLIGHT_PREAMBLE:-on}
+    # The application runs as an unprivileged user, so it needs the host's docker group
+    # to reach the socket. Override with DOCKER_GID if your host differs:
+    #   DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+    group_add:
+      - "${DOCKER_GID:-999}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
