@@ -22,6 +22,45 @@ Volcengine ECS.
 
 ![Create Agent form with name, description, and workspace instructions](docs/assets/create-agent.jpg)
 
+## Agent Capability Firewall (team-designed middleware)
+
+This fork adds middleware for the challenge's **Prompt injection / tool misuse** threat.
+Full design, threat model, and demo script: **[docs/MIDDLEWARE.md](docs/MIDDLEWARE.md)**.
+Literature survey it is derived from:
+[docs/research/prompt-injection-and-tool-misuse.md](docs/research/prompt-injection-and-tool-misuse.md).
+
+> Untrusted data can never widen an Agent's capability boundary, because the boundary is
+> fixed by the operating system before the untrusted data is ever read.
+
+Four layers, weakest to strongest:
+
+| | Layer | Enforcement |
+| --- | --- | --- |
+| **L1** | Capability budget derived from trusted input and **frozen** before the prompt is built. Proposals may only narrow it; widening is rejected deterministically. | control plane |
+| **L2** | Runtime container on an **internal network with no route off the host**, holding a **run-scoped token instead of the Ark key**, with a **per-Agent Codex home**. | the kernel |
+| **L3** | Every Codex event parsed into a structured trace; each command evaluated against the frozen budget; the turn is aborted on a violation. | control plane |
+| **L4** | Secret redaction before anything is persisted, returned, or displayed. | control plane |
+
+L2 is preventive. L3 is detect-and-contain: the offending command races with the kill, so
+it stops the *turn*, not the individual command. That distinction is deliberate.
+
+Verify each layer yourself: **[docs/TESTING_THE_LAYERS.md](docs/TESTING_THE_LAYERS.md)**.
+
+> **The Runtime has no internet access.** That is the point of L2, and it means package
+> installs cannot succeed. Build with what the Runtime image ships — Node.js, npm, npx,
+> git — and use `node --test` rather than installing a test runner. See
+> [the operating consequence](docs/MIDDLEWARE.md#9-operating-consequence-the-runtime-is-offline).
+
+Run with full enforcement:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.enforce.yml up -d --build
+```
+
+Or `npm run poc`, which already uses the container Runtime. The plain `docker compose up`
+path runs Codex in-process and reports the egress control as **degraded** rather than
+pretending to enforce it.
+
 ## Features
 
 - React and TypeScript Web UI
@@ -93,7 +132,9 @@ In the Web UI:
 4. Enter a task in the Playground, for example:
 
    ```text
-   Create a TypeScript hello-world CLI, add a test, and run it.
+   Create a Node.js hello-world CLI in hello.mjs, add a test for it using the
+   built-in node:test module, run the test with `node --test`, and summarize the
+   files you created. Do not install any packages.
    ```
 
 The Agent can write files, run commands, and continue the same Codex session in

@@ -19,8 +19,13 @@ services:
       AGENT_WORKSPACE_ROOT: /app/workspaces
       CODEX_HOME: /app/codex-home
       CODEX_SANDBOX_MODE: ${CODEX_SANDBOX_MODE:-workspace-write}
+      BROKER_PORT: ${BROKER_PORT:-3001}
     ports:
       - "${PUBLIC_PORT:-3000}:3000"
+      # The credential broker. Runtime containers sit on an internal network with no
+      # route to the internet and reach the broker through this published port on the
+      # network gateway. Nothing else is reachable from a Runtime.
+      - "${BROKER_PORT:-3001}:3001"
     volumes:
       - ./data:/app/data
       - ./workspaces:/app/workspaces
