@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import { modelApiKeyEnv, type AppConfig } from "./config.js";
+import { MODEL_API_KEY_ENV, type AppConfig } from "./config.js";
 import { RunCancelledError } from "./errors.js";
 import { sandboxModeForBudget } from "./middleware/capability.js";
 import { CodexEventConsumer } from "./middleware/event-stream.js";
@@ -267,7 +267,7 @@ export class CodexRunner implements AgentRunner {
     const environment: NodeJS.ProcessEnv = {
       CODEX_HOME: request.codexHome,
       HOME: request.workspacePath,
-      [modelApiKeyEnv(this.config)]: request.brokerToken,
+      [MODEL_API_KEY_ENV]: request.brokerToken,
       NO_COLOR: "1",
     };
     for (const name of inheritedNames) {

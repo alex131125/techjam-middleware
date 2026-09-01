@@ -1,7 +1,7 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
-import { modelApiKeyEnv, type AppConfig } from "./config.js";
+import { MODEL_API_KEY_ENV, type AppConfig } from "./config.js";
 import { buildCodexArgs, PolicyAbortError } from "./codex-runner.js";
 import { RunCancelledError } from "./errors.js";
 import {
@@ -134,8 +134,7 @@ export function buildContainerRunArgs(
     config.containerUser,
     // The run-scoped broker token, not the Ark key.
     "--env",
-    modelApiKeyEnv(config) +
-      (config.modelProvider.id === "ark" ? "=" + request.brokerToken : ""),
+    MODEL_API_KEY_ENV,
     "--env",
     "CODEX_HOME=/codex-home",
     "--env",
@@ -478,7 +477,7 @@ export class ContainerCodexRunner implements AgentRunner {
   private childEnvironment(request?: RunnerRequest): NodeJS.ProcessEnv {
     const environment: NodeJS.ProcessEnv = { NO_COLOR: "1" };
     if (request) {
-      environment[modelApiKeyEnv(this.config)] = request.brokerToken;
+      environment[MODEL_API_KEY_ENV] = request.brokerToken;
     }
     for (const name of [
       "PATH",

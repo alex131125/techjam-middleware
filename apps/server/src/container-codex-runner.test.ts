@@ -88,7 +88,8 @@ describe("Container Codex runner", () => {
     expect(args).toContain("launchpad-runtime");
     expect(flat).not.toContain("--network bridge");
     // V1: the Runtime receives a run-scoped token, never the real key.
-    expect(args).toContain("ARK_API_KEY=ark-run-ephemeral-token");
+    expect(args).toContain("MODEL_API_KEY");
+    expect(flat).not.toContain("ark-run-ephemeral-token");
     expect(flat).not.toContain("ark-real-key-that-must-not-reach-the-runtime");
     // V3: a Codex home scoped to this Agent alone.
     expect(args).toContain("type=bind,src=/tmp/codex-home/agents/agent,dst=/codex-home");

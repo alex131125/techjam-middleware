@@ -202,12 +202,6 @@ export function modelProviderSetupHint(config: AppConfig): string {
     : "Set ARK_API_KEY and ARK_MODEL, then restart.";
 }
 
-export function modelApiKeyEnv(
-  config: AppConfig,
-): "MODEL_API_KEY" | "ARK_API_KEY" {
-  return config.modelProvider.id === "ark" ? "ARK_API_KEY" : MODEL_API_KEY_ENV;
-}
-
 /**
  * Write a Codex config.toml into ONE Agent's private Codex home.
  *
@@ -231,7 +225,7 @@ export async function writeCodexConfig(
     "name = " +
       JSON.stringify(provider.name + " (via Launchpad credential broker)"),
     "base_url = " + JSON.stringify(baseUrl),
-    "env_key = " + JSON.stringify(modelApiKeyEnv(config)),
+    "env_key = " + JSON.stringify(MODEL_API_KEY_ENV),
     'wire_api = "responses"',
     "requires_openai_auth = false",
     "",
