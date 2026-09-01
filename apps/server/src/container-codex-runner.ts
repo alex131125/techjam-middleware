@@ -1,4 +1,9 @@
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import {
+  execFile,
+  spawn,
+  spawnSync,
+  type ChildProcess,
+} from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { MODEL_API_KEY_ENV, type AppConfig } from "./config.js";
@@ -20,6 +25,35 @@ const execFileAsync = promisify(execFile);
 
 /** Where the Agent workspace is mounted inside the Runtime. */
 export const WORKSPACE_MOUNT = "/workspace";
+
+const BROKER_RELAY_SCRIPT = `
+const http = require("node:http");
+const targetHost = process.env.BROKER_TARGET_HOST;
+const targetPort = Number(process.env.BROKER_TARGET_PORT);
+const listenPort = Number(process.env.BROKER_LISTEN_PORT);
+http.createServer((request, response) => {
+  const headers = { ...request.headers };
+  delete headers.host;
+  delete headers.connection;
+  delete headers["proxy-connection"];
+  delete headers.upgrade;
+  const upstream = http.request({
+    hostname: targetHost,
+    port: targetPort,
+    path: request.url,
+    method: request.method,
+    headers,
+  }, (upstreamResponse) => {
+    response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
+    upstreamResponse.pipe(response);
+  });
+  upstream.on("error", () => {
+    if (!response.headersSent) response.writeHead(502, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: { message: "Broker relay unavailable" } }));
+  });
+  request.pipe(upstream);
+}).listen(listenPort, "0.0.0.0");
+`;
 
 interface ActiveContainer {
   child: ChildProcess;
@@ -59,6 +93,62 @@ export function containerName(agentId: string, instanceId = "default"): string {
   return "launchpad-" + safeInstance + "-" + safeAgent;
 }
 
+export function brokerRelayName(instanceId = "default"): string {
+  return containerName("broker-relay", instanceId);
+}
+
+export function buildBrokerRelayRunArgs(
+  config: AppConfig,
+  relayName = brokerRelayName(config.runtimeInstanceId),
+): string[] {
+  const engineName = config.containerEngine
+    .split(/[\\/]/)
+    .at(-1)
+    ?.toLowerCase();
+  const targetHost =
+    engineName === "podman" ? "host.containers.internal" : "host.docker.internal";
+  return [
+    "run",
+    "--detach",
+    "--rm",
+    "--init",
+    "--name",
+    relayName,
+    "--label",
+    "io.codejam.launchpad=broker-relay",
+    "--label",
+    "io.codejam.instance-id=" + config.runtimeInstanceId,
+    "--network",
+    "bridge",
+    ...(engineName === "docker"
+      ? ["--add-host", "host.docker.internal:host-gateway"]
+      : []),
+    "--security-opt",
+    "no-new-privileges",
+    "--cap-drop",
+    "ALL",
+    "--read-only",
+    "--pids-limit",
+    "64",
+    "--memory",
+    "128m",
+    "--cpus",
+    "0.25",
+    "--user",
+    config.containerUser,
+    "--env",
+    "BROKER_TARGET_HOST=" + targetHost,
+    "--env",
+    "BROKER_TARGET_PORT=" + config.brokerPort,
+    "--env",
+    "BROKER_LISTEN_PORT=" + config.brokerPort,
+    config.containerRuntimeImage,
+    "node",
+    "-e",
+    BROKER_RELAY_SCRIPT,
+  ];
+}
+
 /**
  * L2 - the deterministic boundary.
  *
@@ -66,7 +156,7 @@ export function containerName(agentId: string, instanceId = "default"): string {
  * them depend on the model behaving:
  *
  *  1. `--network <internal network>` — the Runtime has no route off the host. The only
- *     reachable endpoint is the credential broker on the network gateway. An injected
+ *     reachable endpoint is the credential broker or its fixed relay. An injected
  *     `fetch("https://attacker.tld")` fails at the kernel, not at a filter.
  *  2. No `ARK_API_KEY` passthrough — the Runtime receives a run-scoped broker token that
  *     is revoked when the turn ends.
@@ -162,6 +252,8 @@ export function buildContainerRunArgs(
 export class ContainerCodexRunner implements AgentRunner {
   private readonly active = new Map<string, ActiveContainer>();
   private gatewayAddress = "127.0.0.1";
+  private relayContainerName: string | null = null;
+  private relayCleanupRegistered = false;
 
   constructor(private readonly config: AppConfig) {}
 
@@ -177,12 +269,10 @@ export class ContainerCodexRunner implements AgentRunner {
    * Create the isolated Runtime network and work out the address the Runtime should use
    * to reach the credential broker. `--internal` is what removes the default route.
    *
-   * Two placements to handle:
-   *  - Control plane on the host: the broker is reachable at the network GATEWAY, because
-   *    that address belongs to the host itself and needs no forwarding.
-   *  - Control plane in a container: a published port would have to be forwarded from the
-   *    internal bridge to another bridge, which is exactly what network isolation blocks.
-   *    So the control plane joins the Runtime network and advertises its address on it.
+   * A containerised control plane joins the Runtime network directly. A host process
+   * cannot join a Docker Desktop bridge, so that placement gets a constrained relay with
+   * one internal interface and one host-facing interface. The Runtime still has no
+   * default route, and the relay has no credential or configurable upstream.
    */
   async prepare(): Promise<void> {
     const engine = this.config.containerEngine;
@@ -206,6 +296,7 @@ export class ContainerCodexRunner implements AgentRunner {
     // A Runtime container orphaned by a crash still holds its name, which would make
     // every subsequent turn for that Agent fail with a name conflict.
     await this.removeOrphanedRuntimes();
+    await this.removeBrokerRelay();
 
     if (this.config.brokerAdvertiseHost) {
       this.gatewayAddress = this.config.brokerAdvertiseHost;
@@ -218,24 +309,61 @@ export class ContainerCodexRunner implements AgentRunner {
       return;
     }
 
-    try {
-      const { stdout } = await execFileAsync(
-        engine,
-        [
-          "network",
-          "inspect",
-          network,
-          "-f",
-          "{{range .IPAM.Config}}{{.Gateway}}{{end}}",
-        ],
-        { timeout: 10_000, env: this.childEnvironment() },
-      );
-      const gateway = stdout.trim();
-      if (gateway) this.gatewayAddress = gateway;
-    } catch {
-      // Leave the loopback default; the broker is then unreachable and a run fails
-      // loudly rather than silently falling back to a direct Ark connection.
+    this.gatewayAddress = await this.startBrokerRelay(network);
+  }
+
+  private async startBrokerRelay(network: string): Promise<string> {
+    if (this.config.brokerPort === 0) {
+      throw new Error("BROKER_PORT must be non-zero for a host control plane");
     }
+    const engine = this.config.containerEngine;
+    const relayName = brokerRelayName(this.config.runtimeInstanceId);
+    await execFileAsync(engine, buildBrokerRelayRunArgs(this.config, relayName), {
+      timeout: 30_000,
+      env: this.childEnvironment(),
+    });
+    try {
+      await execFileAsync(
+        engine,
+        ["network", "connect", "--alias", relayName, network, relayName],
+        { timeout: 15_000, env: this.childEnvironment() },
+      );
+    } catch (error) {
+      await execFileAsync(engine, ["rm", "--force", relayName], {
+        timeout: 8_000,
+        env: this.childEnvironment(),
+      }).catch(() => undefined);
+      throw error;
+    }
+    this.relayContainerName = relayName;
+    this.registerRelayCleanup();
+    return relayName;
+  }
+
+  private async removeBrokerRelay(): Promise<void> {
+    const relayName = brokerRelayName(this.config.runtimeInstanceId);
+    await execFileAsync(this.config.containerEngine, ["rm", "--force", relayName], {
+      timeout: 8_000,
+      env: this.childEnvironment(),
+    }).catch(() => undefined);
+    this.relayContainerName = null;
+  }
+
+  private registerRelayCleanup(): void {
+    if (this.relayCleanupRegistered) return;
+    this.relayCleanupRegistered = true;
+    process.once("exit", () => {
+      if (!this.relayContainerName) return;
+      spawnSync(
+        this.config.containerEngine,
+        ["rm", "--force", this.relayContainerName],
+        {
+          timeout: 5_000,
+          env: this.childEnvironment(),
+          stdio: "ignore",
+        },
+      );
+    });
   }
 
   private async removeOrphanedRuntimes(): Promise<void> {

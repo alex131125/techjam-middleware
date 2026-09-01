@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config.js";
 import {
+  brokerRelayName,
+  buildBrokerRelayRunArgs,
   buildContainerRunArgs,
   containerName,
   toHostPath,
@@ -29,6 +31,28 @@ const runnerRequest = (overrides: Partial<RunnerRequest>): RunnerRequest => ({
 });
 
 describe("Container Codex runner", () => {
+  it("builds a fixed host relay without provider credentials", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      ARK_API_KEY: "ark-real-key-that-must-not-reach-the-relay",
+      ARK_MODEL: "ep-test",
+      CONTAINER_ENGINE: "docker",
+      CONTAINER_RUNTIME_IMAGE: "runtime:test",
+      RUNTIME_INSTANCE_ID: "test-instance",
+    });
+    const name = brokerRelayName(config.runtimeInstanceId);
+    const args = buildBrokerRelayRunArgs(config, name);
+    const flat = args.join(" ");
+
+    expect(name).toBe("launchpad-test-instance-broker-relay");
+    expect(args).toContain("host.docker.internal:host-gateway");
+    expect(args).toContain("BROKER_TARGET_PORT=3001");
+    expect(args).toContain("--read-only");
+    expect(args).toContain("runtime:test");
+    expect(flat).not.toContain("ark-real-key-that-must-not-reach-the-relay");
+    expect(flat).not.toContain("MODEL_API_KEY");
+  });
+
   it("builds an isolated Docker/Podman-compatible invocation", () => {
     const config = loadConfig({
       NODE_ENV: "test",
