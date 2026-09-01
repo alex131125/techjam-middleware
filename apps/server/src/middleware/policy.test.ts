@@ -124,6 +124,22 @@ describe("policy evaluation", () => {
     expect(decision.violations.map((item) => item.kind)).toContain("credential-access");
   });
 
+  /**
+   * MODEL_API_KEY is the name the run-scoped broker token is actually injected under
+   * (config.ts MODEL_API_KEY_ENV), and GLM_API_KEY / ZAI_API_KEY are the operator-side
+   * names for the non-Ark provider. A `printenv` of any of them is caught by the generic
+   * printenv rule, but an `echo $VAR` is only caught because the name itself is listed --
+   * so these cases are what stop a provider rename from reopening the blind spot.
+   */
+  it.each(["MODEL_API_KEY", "GLM_API_KEY", "ZAI_API_KEY", "ARK_API_KEY"])(
+    "denies an echo of %s, not just a printenv",
+    (name) => {
+      const decision = evaluate("/bin/bash -lc 'echo $" + name + "'");
+      expect(decision.allowed).toBe(false);
+      expect(decision.violations.map((item) => item.kind)).toContain("credential-access");
+    },
+  );
+
   it("denies privilege escalation", () => {
     const decision = evaluate("/bin/bash -lc 'sudo cat /etc/shadow'");
     expect(decision.allowed).toBe(false);

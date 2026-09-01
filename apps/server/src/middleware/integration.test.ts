@@ -28,7 +28,12 @@ import type {
 } from "../types.js";
 import { CodexEventConsumer } from "./event-stream.js";
 
-const REAL_KEY = "ark-real-key-value-that-must-never-be-echoed";
+/**
+ * Deliberately NOT credential-shaped: no `ark-`/`sk-`/`AKIA`/`ghp_`/JWT prefix, so none of
+ * L4's PATTERNS can match it. The only thing that can keep it out of the persisted record
+ * is the literal SecretRegistry entry, which is what these assertions are here to prove.
+ */
+const REAL_KEY = "provider-secret-9f3c1d7b4e2a5c8d";
 
 /** Replays a fixed Codex event stream, enforcing policy exactly as the real Runtimes do. */
 class ScriptedRunner implements AgentRunner {

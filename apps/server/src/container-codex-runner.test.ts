@@ -71,7 +71,9 @@ describe("Container Codex runner", () => {
     expect(args).toContain("MODEL_API_KEY=ark-run-ephemeral-token");
     expect(args).not.toContain("MODEL_API_KEY");
     expect(args).not.toContain("ARK_API_KEY");
-    expect(args).not.toContain("secret-that-must-not-appear-in-argv");
+    // Substring, not element-wise: `toContain` on an array only matches whole elements,
+    // so a key that leaked EMBEDDED in an argument would pass an array-level check.
+    expect(args.join(" ")).not.toContain("secret-that-must-not-appear-in-argv");
   });
 
   // L2, the deterministic half of the defence. Each of these is a fix for a verified
